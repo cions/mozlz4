@@ -10,7 +10,7 @@ Compress or decompress mozlz4 files.
 
 ## Usage
 
-```sh
+```
 $ mozlz4 --help
 Usage: mozlz4 [OPTIONS] [FILE...]
 
