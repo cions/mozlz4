@@ -1,0 +1,129 @@
+name: CI
+
+on: [ push, pull_request ]
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+
+    runs-on: ${{ matrix.os }}
+
+    permissions:
+      contents: read
+
+    strategy:
+      matrix:
+        os:
+        - windows-latest
+        - macos-latest
+        - ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: "1.23"
+    - name: Run go test
+      run: go test -v ./...
+    - name: Build mozlz4
+      env:
+        CGO_ENABLED: "0"
+      run: go build -v ./cmd/mozlz4
+    - name: Run mozlz4
+      shell: bash
+      run: |
+        echo "{}" > empty.json
+        ./mozlz4 -z empty.json
+        ./mozlz4 -d -o uncompressed.json empty.json.mozlz4
+        cmp empty.json uncompressed.json
+
+  create-release:
+    name: Create GitHub Release
+
+    runs-on: ubuntu-latest
+
+    needs: [ test ]
+
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+
+    outputs:
+      release-name: ${{ steps.create-release.outputs.release-name }}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - id: create-release
+      name: Create GitHub Release
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        RELEASE_NAME="${GITHUB_REF#refs/tags/}"
+        gh release create --draft "${RELEASE_NAME}"
+        echo "release-name=${RELEASE_NAME}" >> "${GITHUB_OUTPUT}"
+
+  upload-release-assets:
+    name: Upload release asset (${{ matrix.GOOS }}/${{ matrix.GOARCH }})
+
+    runs-on: ubuntu-latest
+
+    needs: [ create-release ]
+
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+
+    strategy:
+      matrix:
+        include:
+        - { GOOS: windows, GOARCH: amd64 }
+        - { GOOS: darwin,  GOARCH: amd64 }
+        - { GOOS: darwin,  GOARCH: arm64 }
+        - { GOOS: linux,   GOARCH: amd64 }
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: "1.23"
+    - id: build-release-asset
+      name: Build release asset
+      env:
+        CGO_ENABLED: "0"
+        GOOS: ${{ matrix.GOOS }}
+        GOARCH: ${{ matrix.GOARCH }}
+      run: |
+        go install -buildmode=pie -trimpath -ldflags "-s -w" "github.com/${GITHUB_REPOSITORY}/cmd/mozlz4@${GITHUB_REF#refs/tags/}"
+
+        ASSETDIR="mozlz4-${GOOS}-${GOARCH}-${GITHUB_REF#refs/tags/v}"
+        mkdir "${ASSETDIR}"
+        cp LICENSE README.md "${ASSETDIR}"
+
+        if [[ "${GOOS}/${GOARCH}" == "$(go env GOHOSTOS)/$(go env GOHOSTARCH)" ]]; then
+          GOBIN="$(go env GOPATH)/bin"
+        else
+          GOBIN="$(go env GOPATH)/bin/${GOOS}_${GOARCH}"
+        fi
+        GOEXE="$(go env GOEXE)"
+        cp "${GOBIN}/mozlz4${GOEXE}" "${ASSETDIR}"
+
+        case "${GOOS}" in
+          windows)
+            zip "${ASSETDIR}.zip" "${ASSETDIR}"/*
+            echo "asset-name=${ASSETDIR}.zip" >> "${GITHUB_OUTPUT}"
+            ;;
+          *)
+            tar zcf "${ASSETDIR}.tar.gz" "${ASSETDIR}"
+            echo "asset-name=${ASSETDIR}.tar.gz" >> "${GITHUB_OUTPUT}"
+            ;;
+        esac
+    - name: Upload release asset
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        RELEASE_NAME: ${{ needs.create-release.outputs.release-name }}
+        ASSET_NAME: ${{ steps.build-release-asset.outputs.asset-name }}
+      run: gh release upload "${RELEASE_NAME}" "${ASSET_NAME}"
