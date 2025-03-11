@@ -1,4 +1,4 @@
-// Copyright (c) 2024 cions
+// Copyright (c) 2024-2025 cions
 // Licensed under the MIT License. See LICENSE for details.
 
 package mozlz4
@@ -6,6 +6,7 @@ package mozlz4
 import (
 	"bytes"
 	"encoding/hex"
+	"fmt"
 	"testing"
 )
 
@@ -20,7 +21,7 @@ var tests = []struct {
 func unhex(s string) []byte {
 	decoded, err := hex.DecodeString(s)
 	if err != nil {
-		panic(err)
+		panic(fmt.Sprintf("unhex(%q): %v", s, err))
 	}
 	return decoded
 }
@@ -55,7 +56,7 @@ func TestDecompress(t *testing.T) {
 
 	for _, tt := range errorTests {
 		if _, err := Decompress(unhex(tt)); err == nil {
-			t.Errorf("expected non-nil error")
+			t.Errorf("expected a non-nil error")
 		}
 	}
 }

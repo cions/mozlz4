@@ -1,4 +1,4 @@
-// Copyright (c) 2024 cions
+// Copyright (c) 2024-2025 cions
 // Licensed under the MIT License. See LICENSE for details.
 
 package main
@@ -33,7 +33,7 @@ Options:
   -k, --keep            Don't delete the input files (default)
       --rm              Delete the input files after successful (de)compression
   -f, --force           Allow overwriting existing files, reading input from
-                        a terminal, writing compressed data to a terminal
+                        a terminal, and writing compressed data to a terminal
   -h, --help            Show this help message and exit
       --version         Show version information and exit
 `
@@ -47,7 +47,7 @@ type Command struct {
 	Force           bool
 }
 
-func (c *Command) Kind(name string) options.Kind {
+func (cmd *Command) Kind(name string) options.Kind {
 	switch name {
 	case "-z", "--compress":
 		return options.Boolean
@@ -74,26 +74,26 @@ func (c *Command) Kind(name string) options.Kind {
 	}
 }
 
-func (c *Command) Option(name string, value string, hasValue bool) error {
+func (cmd *Command) Option(name string, value string, hasValue bool) error {
 	switch name {
 	case "-z", "--compress":
-		c.ForceCompress = true
-		c.ForceDecompress = false
+		cmd.ForceCompress = true
+		cmd.ForceDecompress = false
 	case "-d", "--decompress":
-		c.ForceCompress = false
-		c.ForceDecompress = true
+		cmd.ForceCompress = false
+		cmd.ForceDecompress = true
 	case "-c", "--stdout":
-		c.Destination = "-"
+		cmd.Destination = "-"
 	case "-o", "--output":
-		c.Destination = value
+		cmd.Destination = value
 	case "-S", "--suffix":
-		c.Suffix = value
+		cmd.Suffix = value
 	case "-k", "--keep":
-		c.Delete = false
+		cmd.Delete = false
 	case "--rm":
-		c.Delete = true
+		cmd.Delete = true
 	case "-f", "--force":
-		c.Force = true
+		cmd.Force = true
 	case "-h", "--help":
 		return options.ErrHelp
 	case "--version":
@@ -104,14 +104,14 @@ func (c *Command) Option(name string, value string, hasValue bool) error {
 	return nil
 }
 
-func (c *Command) readFile(name string) ([]byte, error) {
+func (cmd *Command) readFile(name string) ([]byte, error) {
 	if name == "-" {
 		return io.ReadAll(os.Stdin)
 	}
 	return os.ReadFile(name)
 }
 
-func (c *Command) writeFile(name string, data []byte) error {
+func (cmd *Command) writeFile(name string, data []byte) error {
 	if name == "-" {
 		if _, err := os.Stdout.Write(data); err != nil {
 			return err
@@ -120,7 +120,7 @@ func (c *Command) writeFile(name string, data []byte) error {
 	}
 
 	flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
-	if !c.Force {
+	if !cmd.Force {
 		flags |= os.O_EXCL
 	}
 	f, err := os.OpenFile(name, flags, 0o666)
@@ -137,17 +137,16 @@ func (c *Command) writeFile(name string, data []byte) error {
 	return nil
 }
 
-func (c *Command) getDestination(name string, compress bool) (string, error) {
-	if c.Destination != "" {
-		return c.Destination, nil
+func (cmd *Command) getDestination(name string, compress bool) (string, error) {
+	if cmd.Destination != "" {
+		return cmd.Destination, nil
 	}
 	if name == "-" {
 		return "-", nil
 	}
 	if compress {
-		return name + c.Suffix, nil
+		return name + cmd.Suffix, nil
 	}
-
 	ext := filepath.Ext(name)
 	if base := filepath.Base(name); ext == base {
 		ext = ""
@@ -155,24 +154,21 @@ func (c *Command) getDestination(name string, compress bool) (string, error) {
 	if ext == "" {
 		return "", fmt.Errorf("%v has no extension. use -o/--output option.", name)
 	}
-	if dest, found := strings.CutSuffix(name, ext); !found {
-		return "", fmt.Errorf("%v has no extension. use -o/--output option.", name)
-	} else {
-		return dest, nil
-	}
+	return strings.TrimSuffix(name, ext), nil
 }
 
-func (c *Command) processFile(file string) error {
-	if !c.Force && file == "-" && term.IsTerminal(int(os.Stdin.Fd())) {
-		return errors.New("stdin is a terminal")
+func (cmd *Command) processFile(file string) error {
+	if !cmd.Force && file == "-" && term.IsTerminal(int(os.Stdin.Fd())) {
+		return fmt.Errorf("the standard input is a terminal")
 	}
 
-	input, err := c.readFile(file)
+	input, err := cmd.readFile(file)
 	if err != nil {
 		return err
 	}
 
-	compress := c.ForceCompress || (!c.ForceDecompress && !bytes.HasPrefix(input, mozlz4.HEADER))
+	compress := cmd.ForceCompress || (!cmd.ForceDecompress && !bytes.HasPrefix(input, mozlz4.HEADER))
+
 	var output []byte
 	if compress {
 		output, err = mozlz4.Compress(input)
@@ -187,19 +183,19 @@ func (c *Command) processFile(file string) error {
 		}
 	}
 
-	dest, err := c.getDestination(file, compress)
+	dest, err := cmd.getDestination(file, compress)
 	if err != nil {
 		return err
 	}
-	if !c.Force && compress && dest == "-" && term.IsTerminal(int(os.Stdout.Fd())) {
-		return errors.New("stdout is a terminal")
+	if !cmd.Force && compress && dest == "-" && term.IsTerminal(int(os.Stdout.Fd())) {
+		return fmt.Errorf("the standard output is a terminal")
 	}
 
-	if err := c.writeFile(dest, output); err != nil {
+	if err := cmd.writeFile(dest, output); err != nil {
 		return err
 	}
 
-	if c.Delete && file != dest && file != "-" && dest != "-" {
+	if cmd.Delete && file != dest && file != "-" && dest != "-" {
 		if err := os.Remove(file); err != nil {
 			return err
 		}
@@ -209,35 +205,38 @@ func (c *Command) processFile(file string) error {
 }
 
 func run(args []string) error {
-	c := &Command{
+	cmd := &Command{
 		Suffix: ".mozlz4",
 	}
 
-	files, err := options.Parse(c, args)
-	if errors.Is(err, options.ErrHelp) {
+	files, err := options.Parse(cmd, args)
+	switch {
+	case errors.Is(err, options.ErrHelp):
 		usage := strings.ReplaceAll(USAGE, "$NAME", NAME)
 		fmt.Print(usage)
 		return nil
-	} else if errors.Is(err, options.ErrVersion) {
+	case errors.Is(err, options.ErrVersion):
 		version := VERSION
 		if bi, ok := debug.ReadBuildInfo(); ok {
 			version = bi.Main.Version
 		}
 		fmt.Printf("%v %v\n", NAME, version)
 		return nil
-	} else if err != nil {
+	case err != nil:
 		return err
-	} else if len(files) > 1 && c.Destination != "" && c.Destination != "-" {
-		return errors.New("-o/--output cannot be used if multiple input files is given")
+	case len(files) > 1 && cmd.Destination != "" && cmd.Destination != "-":
+		return options.Errorf("-o/--output cannot be used if multiple input files is given")
 	}
 
 	if len(files) == 0 {
-		return c.processFile("-")
-	}
-
-	for _, file := range files {
-		if err := c.processFile(file); err != nil {
+		if err := cmd.processFile("-"); err != nil {
 			return err
+		}
+	} else {
+		for _, file := range files {
+			if err := cmd.processFile(file); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -247,6 +246,9 @@ func run(args []string) error {
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintf(os.Stderr, "%v: error: %v\n", NAME, err)
+		if errors.Is(err, options.ErrCmdline) {
+			os.Exit(2)
+		}
 		os.Exit(1)
 	}
 }
