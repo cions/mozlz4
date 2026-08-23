@@ -4,7 +4,6 @@
 [![LICENSE](https://img.shields.io/github/license/cions/mozlz4)](https://github.com/cions/mozlz4/blob/master/LICENSE)
 [![CI](https://github.com/cions/mozlz4/actions/workflows/ci.yml/badge.svg)](https://github.com/cions/mozlz4/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/cions/mozlz4.svg)](https://pkg.go.dev/github.com/cions/mozlz4)
-[![Go Report Card](https://goreportcard.com/badge/github.com/cions/mozlz4)](https://goreportcard.com/report/github.com/cions/mozlz4)
 
 Compress or decompress mozlz4 files.
 
