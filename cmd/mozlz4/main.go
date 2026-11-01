@@ -217,7 +217,7 @@ func run(args []string) error {
 		return nil
 	case errors.Is(err, options.ErrVersion):
 		version := VERSION
-		if bi, ok := debug.ReadBuildInfo(); ok {
+		if bi, ok := debug.ReadBuildInfo(); ok && VERSION == "(devel)" {
 			version = bi.Main.Version
 		}
 		fmt.Printf("%v %v\n", NAME, version)
